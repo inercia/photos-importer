@@ -1,8 +1,17 @@
-FROM python:onbuild
+FROM python:2.7-alpine
 
-RUN wget http://http.us.debian.org/debian/pool/main/libi/libimage-exiftool-perl/libimage-exiftool-perl_9.74-1_all.deb && dpkg -i libimage-exiftool-perl_9.74-1_all.deb
+RUN mkdir -p /usr/src/app
+WORKDIR /usr/src/app
 
-VOLUME ["/photos/src", "/photos/dst"]
-WORKDIR /photos/src
+RUN apk update && \
+    apk upgrade && \
+    apk add git exiftool
 
-CMD ["sortphotos"]
+COPY requirements.txt /usr/src/app/
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . /usr/src/app/
+RUN pip install --no-cache-dir .
+
+VOLUME ["/orig", "/dest"]
+CMD    [ "photos_importer" ]

@@ -1,1 +1,2 @@
--e git://github.com/andrewning/sortphotos.git#egg=sortphotos
+watchdog
+git+http://github.com/andrewning/sortphotos#egg=sortphotos
