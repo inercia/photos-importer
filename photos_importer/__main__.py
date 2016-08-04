@@ -59,9 +59,24 @@ def main(args=None):
     # watcher arguments
     parser.add_argument('--delay', type=int, default=60, help='delay for synchronizing \n\
     after observing last modification (in seconds)')
+    parser.add_argument('--prune-empty', action='store_true',
+                        default=True,
+                        help='prune empty directories.')
 
     # parse command line arguments
     args = parser.parse_args()
+
+    def prune_dir(d):
+        # traverse root directory, and list directories as dirs and files as files
+        for root, dirs, files in os.walk(d):
+            for sd in dirs:
+                fsd = os.path.join(d, sd)
+                prune_dir(fsd)
+                try:
+                    os.rmdir(fsd)
+                except OSError as ex:
+                    if ex.errno == errno.ENOTEMPTY:
+                        print("%s not empty: cannot prune" % fsd)
 
     class MyHandler(PatternMatchingEventHandler):
         patterns = ["*.jpg",
@@ -110,20 +125,19 @@ def main(args=None):
         case_sensitive = False
 
         def __init__(self, *args, **kwargs):
-            self.timeout = kwargs.pop('time_interval', 0.2)
+            self.timeout = kwargs.pop('time_interval', 0.4)
             super(MyHandler, self).__init__(*args, **kwargs)
             self.event_queue = Queue.Queue()
             self.timer_thread = Thread(target=self.timer_loop)
             self.timer_thread.daemon = True
             self.timer_thread.start()
             self.timer = None
+            self.synchronizing = False
 
         def on_created(self, event):
-            print("file/dir created")
             self.event_queue.put(event)
 
         def on_modified(self, event):
-            print("file/dir modified")
             self.event_queue.put(event)
 
         def timer_loop(self):
@@ -133,21 +147,38 @@ def main(args=None):
                     event = self.event_queue.get(timeout=self.timeout)
                     events.append(event)
                 except Queue.Empty:
+                    # when no more events are received, process all the
+                    # `events` as only one
                     if events:
+                        print("detected modifications in files/dirs")
                         if self.timer:
                             print("reseting timer")
                             self.timer.cancel()
-                        print("scheduling synchronization in %d seconds" % args.delay)
-                        self.timer = Timer(args.delay, self.synchronize)
-                        self.timer.start()
+
+                        if not self.synchronizing:
+                            print("scheduling synchronization in %d seconds" % args.delay)
+                            self.timer = Timer(args.delay, self.synchronize)
+                            self.timer.start()
+
                         events = []
 
+        """
+        Synchronize photos between two directories
+        """
         def synchronize(self):
-            print("synchronizing photos %s -> %s" % (args.src_dir, args.dest_dir))
-            sortPhotos(args.src_dir, args.dest_dir, args.sort, args.rename, args.recursive,
-                args.copy, args.test, not args.keep_duplicates, args.day_begins,
-                args.ignore_groups, args.ignore_tags, args.use_only_groups,
-                args.use_only_tags, not args.silent)
+            if not self.synchronizing:
+                self.synchronizing = True
+
+                print("synchronizing photos %s -> %s" % (args.src_dir, args.dest_dir))
+                sortPhotos(args.src_dir, args.dest_dir, args.sort, args.rename, args.recursive,
+                    args.copy, args.test, not args.keep_duplicates, args.day_begins,
+                    args.ignore_groups, args.ignore_tags, args.use_only_groups,
+                    args.use_only_tags, not args.silent)
+
+                if args.prune_empty:
+                    prune_dir(args.src_dir)
+
+                self.synchronizing = False
 
     observer = Observer()
     observer.schedule(MyHandler(),
